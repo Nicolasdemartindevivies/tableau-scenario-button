@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Scenario Button</title>
+  <script src="https://extensions.tableauusercontent.com/resources/tableau.extensions.1.latest.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    #container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 10px;
+    }
+    #buttons-row { display: flex; gap: 10px; }
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #btn-add { background: #1a73e8; color: white; }
+    #btn-add:hover { background: #1558b0; }
+    #btn-reset { background: #e84040; color: white; }
+    #btn-reset:hover { background: #b52f2f; }
+    #status {
+      font-size: 11px;
+      color: #333;
+      text-align: center;
+      word-break: break-all;
+      max-width: 500px;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="buttons-row">
+      <button id="btn-add">＋ Ajouter ce scénario</button>
+      <button id="btn-reset">🗑 Reset</button>
+    </div>
+    <div id="status">Initialisation...</div>
+  </div>
+
+  <script>
+    const INPUT = {
+      nom:    "P_INPUT_Nom_Serveur",
+      prix:   "P_INPUT_Prix_Unitaire",
+      qte:    "P_INPUT_Quantite",
+      duree:  "P_INPUT_Duree_Mois",
+      remise: "P_INPUT_Remise"
+    };
+
+    const SLOT_ACTIF = "P_Slot_Actif";
+    const MAX_SLOTS  = 5;
+
+    const SLOTS = {
+      nom:    ["P_S1_Nom_Serveur",   "P_S2_Nom_Serveur",   "P_S3_Nom_Serveur",   "P_S4_Nom_Serveur",   "P_S5_Nom_Serveur"],
+      prix:   ["P_S1_Prix_Unitaire", "P_S2_Prix_Unitaire", "P_S3_Prix_Unitaire", "P_S4_Prix_Unitaire", "P_S5_Prix_Unitaire"],
+      qte:    ["P_S1_Quantite",      "P_S2_Quantite",      "P_S3_Quantite",      "P_S4_Quantite",      "P_S5_Quantite"],
+      duree:  ["P_S1_Duree_Mois",    "P_S2_Duree_Mois",    "P_S3_Duree_Mois",    "P_S4_Duree_Mois",    "P_S5_Duree_Mois"],
+      remise: ["P_S1_Remise",        "P_S2_Remise",        "P_S3_Remise",        "P_S4_Remise",        "P_S5_Remise"]
+    };
+
+    let paramsMap = {};
+
+    tableau.extensions.initializeAsync().then(async () => {
+      await refreshParams();
+      setStatus("✅ Prêt");
+    }).catch(err => {
+      setStatus("❌ Init: " + err);
+    });
+
+    async function refreshParams() {
+      const dashboard = tableau.extensions.dashboardContent.dashboard;
+      const params = await dashboard.getParametersAsync();
+      paramsMap = {};
+      params.forEach(p => { paramsMap[p.name] = p; });
+    }
+
+    function readNative(name) {
+      const p = paramsMap[name];
+      if (!p) return null;
+      const native = p.currentValue.nativeValue;
+      if (native !== null && native !== undefined) return native;
+      return p.currentValue.value;
+    }
+
+    async function writeValue(name, value) {
+      const p = paramsMap[name];
+      if (!p) {
+        setStatus("❌ Param introuvable: " + name);
+        return;
+      }
+
+      const dt = p.dataType;
+      let typed;
+
+      if (dt === "float") {
+        // Envoyer comme string avec virgule (format français)
+        const num = parseFloat(String(value).replaceAll(',', '.'));
+        typed = isNaN(num) ? "0" : String(num).replaceAll('.', ',');
+      } else if (dt === "int") {
+        const num = parseInt(String(value).replaceAll(',', '.'));
+        typed = isNaN(num) ? "0" : String(num);
+      } else {
+        typed = String(value === null || value === undefined ? "" : value);
+      }
+
+      setStatus("Ecriture: " + name + " = [" + typed + "]");
+      await p.changeValueAsync(typed);
+    }
+
+    document.getElementById("btn-add").addEventListener("click", async () => {
+      try {
+        await refreshParams();
+
+        const slot = parseInt(String(readNative(SLOT_ACTIF)).replaceAll(',', '.')) || 1;
+        if (slot > MAX_SLOTS) {
+          setStatus("⚠️ Maximum " + MAX_SLOTS + " scénarios — cliquez Reset");
+          return;
+        }
+
+        const idx = slot - 1;
+
+        await writeValue(SLOTS.nom[idx],    readNative(INPUT.nom)    || "");
+        await writeValue(SLOTS.prix[idx],   readNative(INPUT.prix)   || 0);
+        await writeValue(SLOTS.qte[idx],    readNative(INPUT.qte)    || 0);
+        await writeValue(SLOTS.duree[idx],  readNative(INPUT.duree)  || 0);
+        await writeValue(SLOTS.remise[idx], readNative(INPUT.remise) || 0);
+        await writeValue(SLOT_ACTIF, Math.min(slot + 1, MAX_SLOTS + 1));
+
+        setStatus("✅ Scénario " + slot + " ajouté !");
+      } catch(err) {
+        setStatus("❌ " + err.message);
+      }
+    });
+
+    document.getElementById("btn-reset").addEventListener("click", async () => {
+      try {
+        await refreshParams();
+        for (let i = 0; i < MAX_SLOTS; i++) {
+          await writeValue(SLOTS.nom[i],    "");
+          await writeValue(SLOTS.prix[i],   0);
+          await writeValue(SLOTS.qte[i],    0);
+          await writeValue(SLOTS.duree[i],  0);
+          await writeValue(SLOTS.remise[i], 0);
+        }
+        await writeValue(SLOT_ACTIF, 1);
+        setStatus("✅ Scénarios effacés");
+      } catch(err) {
+        setStatus("❌ " + err.message);
+      }
+    });
+
+    function setStatus(msg) {
+      document.getElementById("status").textContent = msg;
+    }
+  </script>
+</body>
+</html>
